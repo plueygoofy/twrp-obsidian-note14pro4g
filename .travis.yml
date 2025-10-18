@@ -57,10 +57,8 @@ deploy:
     branch: master # Optional: Needs to be exact as the config branch
 branches:
   only:
+    - main
     - master # Set travis builder branch(es) names
   except:
     - /^(?i:untagged)-.*$/
     - /^v\d+\.\d+(\.\d+)?(-\S*)?$/
-branches:
-  except:
-    - legacy
