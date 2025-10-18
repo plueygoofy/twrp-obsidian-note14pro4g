@@ -62,3 +62,7 @@ branches:
   except:
     - /^(?i:untagged)-.*$/
     - /^v\d+\.\d+(\.\d+)?(-\S*)?$/
+# Add this to your existing .travis.yml
+branches:
+  only:
+    - main
