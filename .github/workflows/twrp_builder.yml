@@ -1,0 +1,95 @@
+# .github/workflows/build-twrp.yml
+
+name: TWRP Recovery Builder
+
+# Trigger the workflow on pushes to the 'main' branch and manual runs
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      TWRP_SOURCE_URL:
+        description: 'URL for the TWRP compressed source file (.tar.xz)'
+        required: true
+        default: 'https://github.com/PhantomZone54/twrp_sources_norepo/releases/download/v3.3.1-20200222/MinimalOmniRecovery-twrp-6.0-norepo-20200222.tar.xz'
+      DEVICE_REPO_URL:
+        description: 'URL for the device tree repository (e.g., your_user/your_repo)'
+        required: true
+        default: 'plueygoofy/twrp-obsidian-note14pro4g'
+      DEVICE_VENDOR:
+        description: 'Device vendor name (e.g., obsidian)'
+        required: true
+        default: 'obsidian'
+      DEVICE_CODENAME:
+        description: 'Device codename (e.g., note14pro4g)'
+        required: true
+        default: 'note14pro4g'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: fr3akyphantom/droid-builder:latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Prepare build environment
+        run: |
+          mkdir -p $HOME/twrp
+          wget -q ${{ github.event.inputs.TWRP_SOURCE_URL || 'https://github.com/PhantomZone54/twrp_sources_norepo/releases/download/v3.3.1-20200222/MinimalOmniRecovery-twrp-6.0-norepo-20200222.tar.xz' }} -O $HOME/twrp.tar.xz
+          tar -xJf $HOME/twrp.tar.xz --directory $HOME/twrp/ && rm $HOME/twrp.tar.xz
+
+      - name: Clone device tree and recovery source
+        run: |
+          cd $HOME/twrp/
+          git clone https://github.com/${{ github.event.inputs.DEVICE_REPO_URL || 'plueygoofy/twrp-obsidian-note14pro4g' }} device/${{ github.event.inputs.DEVICE_VENDOR || 'obsidian' }}/${{ github.event.inputs.DEVICE_CODENAME || 'note14pro4g' }}
+          rm -rf bootable/recovery && git clone https://github.com/omnirom/android_bootable_recovery -b android-9.0 --depth 1 bootable/recovery
+        
+      - name: Build recovery image
+        id: build
+        run: |
+          cd $HOME/twrp/
+          source build/envsetup.sh
+          BUILD_FLAVOR="eng"
+          lunch omni_${{ github.event.inputs.DEVICE_CODENAME || 'note14pro4g' }}-${BUILD_FLAVOR}
+          make -j$(nproc --all) recoveryimage
+          exit
+
+      - name: Get version info and rename file
+        run: |
+          cd $HOME/twrp/
+          export version=$(cat bootable/recovery/variables.h | grep "define TW_MAIN_VERSION_STR" | cut -d '"' -f2)
+          mv $HOME/twrp/out/target/product/${{ github.event.inputs.DEVICE_CODENAME || 'note14pro4g' }}/recovery.img $HOME/twrp/TWRP-$version-${{ github.event.inputs.DEVICE_CODENAME || 'note14pro4g' }}-$(date +"%Y%m%d")-Unofficial.img
+
+      - name: Archive build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: twrp-recovery-image
+          path: $HOME/twrp/*.img
+          retention-days: 7
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.event.inputs.DEVICE_CODENAME }}-${{ github.run_number }}
+          release_name: TWRP Unofficial for ${{ github.event.inputs.DEVICE_CODENAME }}
+          draft: false
+          prerelease: false
+        if: github.event_name == 'workflow_dispatch'
+
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ${{ env.HOME }}/twrp/*.img
+          asset_name: ${{ env.HOME }}/twrp/TWRP-${{ steps.get_version.outputs.version }}-${{ github.event.inputs.DEVICE_CODENAME }}-${{ steps.get_date.outputs.date }}-Unofficial.img
+          asset_content_type: application/octet-stream
+        if: github.event_name == 'workflow_dispatch'
