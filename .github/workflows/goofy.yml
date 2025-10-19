@@ -62,15 +62,19 @@ jobs:
     permissions:
       contents: write
     steps:
-      # Step 1: Free up maximum possible disk space
+      # Step 1: Free up maximum possible disk space by removing pre-installed software.
+      # This action is a robust alternative to `easimon/maximize-build-disk-space`.
       - name: Maximize build disk space
-        # This action removes unnecessary preinstalled software like Android/Haskell SDKs.
-        # This is critical for large builds like OrangeFox which require significant storage.
-        uses: easimon/maximize-build-disk-space@master
+        uses: easimon/maximize-build-space@master
+        with:
+          root-reserve-mb: 512
+          swap-size-mb: 1024
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
 
       # Step 2: Set up a dedicated swap file for memory-intensive operations.
-      # You can increase the swap size to prevent out-of-memory issues.
-      - name: Swap Space
+      - name: Set up Swap Space
         uses: pierotofy/set-swap-space@master
         with:
           swap-size-gb: 24
@@ -86,20 +90,14 @@ jobs:
           echo "Release recovery.tar For Samsung devices: ${{ github.event.inputs.RECOVERY_TAR }}"
           echo "::endgroup::"
       
-      # The slimhub action is no longer necessary as maximize-build-disk-space is more effective.
-      # - name: Clean-up
-      #   uses: rokibhasansagar/slimhub_actions@main
-
+      # Step 3: Use a working cache-clearing action.
       - name: Clean up old caches
-        # Deletes caches older than 3 days to free up space.
-        # This prevents accumulation of cache data over time.
-        # Requires a PAT with `repo` scope to be stored in secrets.
-        uses: toshimaru/delete-action-cache@v2
+        uses: kolpav/purge-cache-action@v1
         with:
-          repo: ${{ github.repository }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          limit: 10 # Adjust limit if needed
-
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          days-inactive: 3
+          limit: 10
+      
       - name: Build Environment
         run: |
           sudo apt update
@@ -167,7 +165,7 @@ jobs:
               echo "MD5_IMG=$(md5sum out/target/product/${{ github.event.inputs.DEVICE_NAME }}/target/product/${{ github.event.inputs.DEVICE_NAME }}/OrangeFox*.img | cut -d ' ' -f 1)" >> $GITHUB_ENV
           else
               echo "Recovery out directory is empty."
-              exit 1 # Fail the job to avoid uploading empty artifacts
+              exit 1
           fi
       
       - name: Rename the Recovery
@@ -214,7 +212,7 @@ jobs:
             ${{ env.FILE_PATH }}/${{ env.RECOVERY_TYPE }}.tar
             ${{ env.FILE_PATH }}/recovery-installer.zip
             ${{ env.FILE_PATH }}/OrangeFox*.zip
-          retention-days: 3 # Reduces retention to 3 days to free up storage space.
+          retention-days: 3
 
       - name: Upload to Release
         if: env.CHECK_IMG_IS_OK == 'true'
